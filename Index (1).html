@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GENEMATCH // Sequence Alignment &amp; Confidence Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#050810;
+  --panel:#0a1120;
+  --panel-2:#0d1526;
+  --line:#1c2a42;
+  --cyan:#00f0ff;
+  --magenta:#ff2fd0;
+  --amber:#ffb800;
+  --green:#39ff88;
+  --red:#ff3860;
+  --gray:#5a6b85;
+  --text:#c9d9f0;
+  --text-dim:#7189ab;
+  --glow-cyan:0 0 8px rgba(0,240,255,.65),0 0 22px rgba(0,240,255,.25);
+  --glow-magenta:0 0 8px rgba(255,47,208,.6),0 0 22px rgba(255,47,208,.2);
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Share Tech Mono',monospace;
+  min-height:100vh;
+  overflow-x:hidden;
+  position:relative;
+}
+h1,h2,h3,.display{font-family:'Orbitron',sans-serif;}
+::selection{background:var(--magenta);color:#000;}
+
+/* ---------- ambient background ---------- */
+#helixCanvas{
+  position:fixed;inset:0;width:100%;height:100%;z-index:0;opacity:.55;pointer-events:none;
+}
+.grid-overlay{
+  position:fixed;inset:0;z-index:1;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(0,240,255,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,240,255,.035) 1px, transparent 1px);
+  background-size:38px 38px;
+  mask-image:radial-gradient(ellipse at center, black 0%, transparent 75%);
+}
+.vignette{
+  position:fixed;inset:0;z-index:1;pointer-events:none;
+  background:radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,.75) 100%);
+}
+.scanline{
+  position:fixed;inset:0;z-index:2;pointer-events:none;
+  background:repeating-linear-gradient(0deg, rgba(255,255,255,.02) 0px, rgba(255,255,255,.02) 1px, transparent 1px, transparent 3px);
+}
+
+/* ---------- layout shell ---------- */
+main, header, footer{position:relative;z-index:3;}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px;}
+
+header{padding:34px 0 18px;text-align:center;}
+.eyebrow{
+  letter-spacing:.4em;font-size:11px;color:var(--magenta);
+  text-shadow:var(--glow-magenta);margin-bottom:10px;
+}
+h1{
+  font-size:clamp(28px,5vw,50px);font-weight:900;margin:0;letter-spacing:.03em;
+  color:#eaf6ff;text-shadow:var(--glow-cyan);
+}
+h1 span{color:var(--cyan);}
+.subtitle{color:var(--text-dim);font-size:13px;margin-top:10px;letter-spacing:.05em;}
+
+/* ---------- panels ---------- */
+.panel{
+  background:linear-gradient(180deg,var(--panel),var(--panel-2));
+  border:1px solid var(--line);
+  border-radius:6px;
+  padding:20px;
+  position:relative;
+}
+.panel::before{
+  content:"";position:absolute;top:-1px;left:14px;right:14px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan),transparent);
+  opacity:.7;
+}
+.panel-title{
+  font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:.15em;
+  color:var(--cyan);margin:0 0 14px;display:flex;align-items:center;gap:8px;
+}
+.panel-title::before{content:"▸";color:var(--magenta);}
+
+.input-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:26px;}
+@media (max-width:820px){.input-grid{grid-template-columns:1fr;}}
+
+textarea{
+  width:100%;min-height:130px;resize:vertical;
+  background:#040810;border:1px solid var(--line);color:var(--green);
+  font-family:'Share Tech Mono',monospace;font-size:13px;letter-spacing:.06em;
+  padding:12px;border-radius:4px;line-height:1.5;
+}
+textarea:focus{outline:2px solid var(--cyan);outline-offset:1px;}
+.meta-row{display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);margin-top:8px;}
+.meta-row .err{color:var(--red);}
+
+.btn-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+button{
+  font-family:'Share Tech Mono',monospace;
+  background:transparent;border:1px solid var(--line);color:var(--text);
+  padding:8px 14px;border-radius:4px;cursor:pointer;font-size:12px;letter-spacing:.05em;
+  transition:.15s;
+}
+button:hover{border-color:var(--cyan);color:var(--cyan);box-shadow:var(--glow-cyan);}
+button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;}
+button.ghost{opacity:.75;}
+
+.controls-panel{margin-top:18px;}
+.controls-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;}
+@media (max-width:820px){.controls-grid{grid-template-columns:1fr 1fr;}}
+.control{display:flex;flex-direction:column;gap:6px;}
+.control label{font-size:11px;color:var(--text-dim);letter-spacing:.05em;display:flex;justify-content:space-between;}
+.control label b{color:var(--amber);font-weight:400;}
+select, input[type=range]{width:100%;}
+select{
+  background:#040810;border:1px solid var(--line);color:var(--text);
+  padding:8px;border-radius:4px;font-family:'Share Tech Mono',monospace;font-size:12px;
+}
+input[type=range]{accent-color:var(--cyan);}
+
+.action-row{display:flex;align-items:center;gap:18px;margin-top:24px;flex-wrap:wrap;}
+#runBtn{
+  background:linear-gradient(90deg,rgba(0,240,255,.12),rgba(255,47,208,.12));
+  border:1px solid var(--cyan);color:#eaf6ff;font-family:'Orbitron',sans-serif;
+  font-weight:700;letter-spacing:.15em;padding:14px 26px;font-size:13px;
+  box-shadow:var(--glow-cyan);
+}
+#runBtn:hover{box-shadow:0 0 14px rgba(0,240,255,.9),0 0 40px rgba(255,47,208,.35);}
+#runBtn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;}
+
+.progress-wrap{flex:1;min-width:180px;height:6px;background:#0c1424;border-radius:3px;overflow:hidden;display:none;border:1px solid var(--line);}
+.progress-bar{height:100%;width:0%;background:linear-gradient(90deg,var(--cyan),var(--magenta));box-shadow:var(--glow-cyan);transition:width .25s;}
+.status-text{font-size:11px;color:var(--text-dim);}
+
+/* ---------- results ---------- */
+.results{margin-top:34px;display:none;}
+.results.show{display:block;animation:fadein .5s ease;}
+@keyframes fadein{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+.result-top{display:grid;grid-template-columns:260px 1fr;gap:22px;}
+@media (max-width:820px){.result-top{grid-template-columns:1fr;}}
+
+.gauge-panel{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;}
+.gauge-panel svg{filter:drop-shadow(0 0 10px rgba(0,240,255,.35));}
+.gauge-num{font-family:'Orbitron',sans-serif;font-size:40px;font-weight:900;margin-top:-108px;}
+.verdict{font-family:'Orbitron',sans-serif;font-size:14px;letter-spacing:.1em;margin-top:14px;padding:6px 12px;border-radius:20px;border:1px solid;}
+.pval{font-size:11px;color:var(--text-dim);margin-top:10px;line-height:1.5;}
+
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden;}
+@media (max-width:600px){.stats-grid{grid-template-columns:repeat(2,1fr);}}
+.stat{background:var(--panel);padding:14px 16px;}
+.stat .k{font-size:10px;color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;}
+.stat .v{font-family:'Orbitron',sans-serif;font-size:19px;margin-top:4px;color:var(--cyan);}
+.stat .v.warn{color:var(--red);}
+.stat .v.good{color:var(--green);}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text-dim);margin:18px 0 8px;}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block;}
+
+.align-viewer{
+  background:#03060c;border:1px solid var(--line);border-radius:6px;
+  padding:16px;overflow-x:auto;margin-top:6px;
+}
+.align-block{font-size:12.5px;line-height:1.7;white-space:pre;margin-bottom:14px;}
+.pos-label{color:var(--text-dim);}
+.base.match{color:var(--green);}
+.base.mismatch{color:var(--red);background:rgba(255,56,96,.08);}
+.base.gap{color:var(--gray);}
+.mid-match{color:var(--green);}
+.mid-mismatch{color:transparent;}
+.mid-gap{color:transparent;}
+
+.export-row{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;}
+
+.note{
+  border-left:2px solid var(--amber);background:rgba(255,184,0,.05);
+  padding:12px 16px;font-size:11.5px;color:var(--text-dim);line-height:1.6;margin-top:18px;border-radius:0 4px 4px 0;
+}
+.note b{color:var(--amber);}
+
+footer{padding:36px 0 50px;text-align:center;font-size:11px;color:var(--text-dim);line-height:1.7;}
+footer b{color:var(--magenta);}
+
+.shake{animation:shake .35s;}
+@keyframes shake{0%,100%{transform:translateX(0);}20%{transform:translateX(-6px);}40%{transform:translateX(6px);}60%{transform:translateX(-4px);}80%{transform:translateX(4px);}}
+
+@media print{
+  #helixCanvas,.grid-overlay,.vignette,.scanline,.input-grid,.controls-panel,.action-row,header .subtitle,.export-row{display:none !important;}
+  body{background:#fff;color:#000;}
+  .panel{border:1px solid #999;background:#fff;}
+}
+@media (prefers-reduced-motion:reduce){
+  #helixCanvas{display:none;}
+}
+</style>
+</head>
+<body>
+
+<canvas id="helixCanvas"></canvas>
+<div class="grid-overlay"></div>
+<div class="vignette"></div>
+<div class="scanline"></div>
+
+<header>
+  <div class="wrap">
+    <div class="eyebrow">SEQUENCE ALIGNMENT · CONFIDENCE SCORING · STATISTICAL VALIDATION</div>
+    <h1>GENE<span>MATCH</span></h1>
+    <div class="subtitle">Dual-strand DNA comparison engine — Needleman-Wunsch / Smith-Waterman alignment core</div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="input-grid">
+    <div class="panel" id="panelA">
+      <h2 class="panel-title">SAMPLE A</h2>
+      <textarea id="seqA" spellcheck="false" placeholder="Paste raw sequence or FASTA (ACGT / N)...
+e.g. ATGCGTACGTTAGC..."></textarea>
+      <div class="meta-row"><span id="lenA">0 bp</span><span id="errA" class="err"></span></div>
+      <div class="btn-row">
+        <button data-action="randomA">⟳ Randomize</button>
+        <button data-action="clearA" class="ghost">Clear</button>
+      </div>
+    </div>
+    <div class="panel" id="panelB">
+      <h2 class="panel-title">SAMPLE B</h2>
+      <textarea id="seqB" spellcheck="false" placeholder="Paste raw sequence or FASTA (ACGT / N)...
+e.g. ATGCGTACGTTAGC..."></textarea>
+      <div class="meta-row"><span id="lenB">0 bp</span><span id="errB" class="err"></span></div>
+      <div class="btn-row">
+        <button data-action="randomB">⟳ Randomize</button>
+        <button data-action="clearB" class="ghost">Clear</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="btn-row" style="margin-top:10px;">
+    <button data-action="demoSimilar">▣ Load Demo — Similar Pair</button>
+    <button data-action="demoDistinct">▣ Load Demo — Distinct Pair</button>
+  </div>
+
+  <section class="panel controls-panel">
+    <h2 class="panel-title">ALIGNMENT PARAMETERS</h2>
+    <div class="controls-grid">
+      <div class="control">
+        <label for="algo">Algorithm</label>
+        <select id="algo">
+          <option value="global">Global — Needleman-Wunsch</option>
+          <option value="local">Local — Smith-Waterman</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Match score <b id="matchVal">+2</b></label>
+        <input type="range" id="matchScore" min="1" max="5" value="2">
+      </div>
+      <div class="control">
+        <label>Mismatch penalty <b id="mismatchVal">-1</b></label>
+        <input type="range" id="mismatchScore" min="-5" max="-1" value="-1">
+      </div>
+      <div class="control">
+        <label>Gap penalty <b id="gapVal">-2</b></label>
+        <input type="range" id="gapScore" min="-5" max="-1" value="-2">
+      </div>
+      <div class="control">
+        <label>K-mer size (similarity index) <b id="kmerVal">4</b></label>
+        <input type="range" id="kmerSize" min="2" max="8" value="4">
+      </div>
+    </div>
+  </section>
+
+  <div class="action-row">
+    <button id="runBtn">▶ INITIATE SEQUENCE MATCH</button>
+    <div class="progress-wrap" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+    <span class="status-text" id="statusText"></span>
+  </div>
+
+  <section class="results" id="results">
+
+    <div class="result-top">
+      <div class="panel gauge-panel">
+        <svg width="220" height="220" viewBox="0 0 220 220">
+          <circle cx="110" cy="110" r="92" fill="none" stroke="#0d1526" stroke-width="14"/>
+          <circle id="gaugeRing" cx="110" cy="110" r="92" fill="none" stroke="#00f0ff" stroke-width="14"
+            stroke-linecap="round" stroke-dasharray="578" stroke-dashoffset="578"
+            transform="rotate(-90 110 110)"/>
+        </svg>
+        <div class="gauge-num" id="gaugeNum">0%</div>
+        <div class="verdict" id="verdict">—</div>
+        <div class="pval" id="pvalText"></div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panel-title">MATCH REPORT</h2>
+        <div class="stats-grid" id="statsGrid"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:18px;">
+      <h2 class="panel-title">ALIGNMENT VIEW</h2>
+      <div class="legend">
+        <span><i style="background:var(--green)"></i>Match</span>
+        <span><i style="background:var(--red)"></i>Mismatch</span>
+        <span><i style="background:var(--gray)"></i>Gap</span>
+      </div>
+      <div class="align-viewer" id="alignViewer"></div>
+      <div class="export-row">
+        <button data-action="exportTxt">⤓ Export Report (.txt)</button>
+        <button data-action="printReport">🖶 Print / Save PDF</button>
+      </div>
+      <div class="note">
+        <b>Scope of this tool:</b> GeneMatch performs computational sequence-similarity analysis (alignment scoring,
+        identity percentage, k-mer overlap, and a random-match probability estimate under a null model of independent
+        uniform bases). It is a bioinformatics/educational instrument, not an accredited clinical, forensic, or legal
+        paternity/identity test — those require validated wet-lab STR profiling under chain-of-custody.
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">GENEMATCH v2.1 — client-side alignment engine · no data leaves this browser<br>
+  <b>Educational / research use.</b> Not a diagnostic or forensic device.</div>
+</footer>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================= HELIX BACKGROUND ============================= */
+const canvas = document.getElementById('helixCanvas');
+const ctx = canvas.getContext('2d');
+let W,H,t=0;
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; }
+window.addEventListener('resize',resize); resize();
+
+const baseColors={A:'#00f0ff',T:'#ff2fd0',G:'#ffb800',C:'#39ff88'};
+const seqCycle='ATGCGTACCGATCGTAGCTAGCATCGATCGTA'.split('');
+let scanning=false, scanProgress=0;
+
+function drawHelix(){
+  ctx.clearRect(0,0,W,H);
+  const cx=W/2, amp=Math.min(220,W*0.22), spacing=34;
+  const rows=Math.ceil(H/spacing)+4;
+  for(let i=0;i<rows;i++){
+    const y=i*spacing - (t*40)%spacing;
+    const phase=(y*0.02)+t*0.6;
+    const x1=cx+Math.sin(phase)*amp;
+    const x2=cx+Math.sin(phase+Math.PI)*amp;
+    const depth=(Math.sin(phase)+1)/2; // 0..1 for pseudo depth
+    const base=seqCycle[i%seqCycle.length];
+    const color=baseColors[base];
+
+    // rung
+    ctx.strokeStyle='rgba(120,160,220,'+(0.08+depth*0.12)+')';
+    ctx.lineWidth=1.4;
+    ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x2,y);ctx.stroke();
+
+    // nodes
+    [ [x1,depth],[x2,1-depth] ].forEach(([x,d])=>{
+      const r=2+d*3.2;
+      ctx.beginPath();
+      ctx.fillStyle=color;
+      ctx.globalAlpha=0.35+d*0.55;
+      ctx.shadowBlur=12*d;
+      ctx.shadowColor=color;
+      ctx.arc(x,y,r,0,Math.PI*2);
+      ctx.fill();
+      ctx.shadowBlur=0;
+      ctx.globalAlpha=1;
+    });
+  }
+
+  if(scanning){
+    scanProgress += 0.012;
+    if(scanProgress>1.15) scanProgress=-0.15;
+    const sy=H*scanProgress;
+    const grad=ctx.createLinearGradient(0,sy-40,0,sy+40);
+    grad.addColorStop(0,'rgba(0,240,255,0)');
+    grad.addColorStop(0.5,'rgba(0,240,255,0.18)');
+    grad.addColorStop(1,'rgba(0,240,255,0)');
+    ctx.fillStyle=grad;
+    ctx.fillRect(0,sy-40,W,80);
+    ctx.fillStyle='rgba(0,240,255,0.55)';
+    ctx.fillRect(0,sy,W,1.5);
+  }
+
+  t+=0.016;
+  if(!reduceMotion) requestAnimationFrame(drawHelix);
+}
+if(!reduceMotion) requestAnimationFrame(drawHelix); else drawHelix();
+
+/* ============================= SEQUENCE UTILS ============================= */
+function cleanSequence(raw){
+  const lines = raw.split('\n').filter(l=>!l.trim().startsWith('>'));
+  let s = lines.join('').toUpperCase().replace(/[^A-Z]/g,'');
+  const invalid = s.replace(/[ACGTN]/g,'');
+  const cleaned = s.replace(/[^ACGTN]/g,'');
+  return {seq:cleaned, invalidCount:invalid.length};
+}
+
+function randomSeq(len){
+  const b='ACGT';
+  let s='';
+  for(let i=0;i<len;i++) s+=b[Math.floor(Math.random()*4)];
+  return s;
+}
+
+function mutateSeq(seq, mutationRate){
+  const b='ACGT';
+  let out='';
+  for(const ch of seq){
+    if(Math.random()<mutationRate){
+      const opts=b.split('').filter(x=>x!==ch);
+      const r=Math.random();
+      if(r<0.08){ /* deletion: skip char */ continue; }
+      if(r<0.16){ out+=ch+opts[Math.floor(Math.random()*3)]; continue; } /* insertion */
+      out+=opts[Math.floor(Math.random()*3)]; /* substitution */
+    } else out+=ch;
+  }
+  return out;
+}
+
+function gcContent(seq){
+  if(!seq.length) return 0;
+  const gc=(seq.match(/[GC]/g)||[]).length;
+  return gc/seq.length*100;
+}
+
+function kmerSet(seq,k){
+  const set=new Set();
+  for(let i=0;i+k<=seq.length;i++) set.add(seq.substr(i,k));
+  return set;
+}
+function jaccard(setA,setB){
+  if(setA.size===0 && setB.size===0) return 0;
+  let inter=0;
+  for(const x of setA) if(setB.has(x)) inter++;
+  const union = setA.size + setB.size - inter;
+  return union===0?0:inter/union;
+}
+
+/* ============================= ALIGNMENT CORE ============================= */
+function needlemanWunsch(a,b,match,mismatch,gap){
+  const n=a.length, m=b.length;
+  const score=new Int32Array((n+1)*(m+1));
+  const ptr=new Uint8Array((n+1)*(m+1)); // 0 diag,1 up,2 left
+  const idx=(i,j)=>i*(m+1)+j;
+
+  for(let i=0;i<=n;i++){ score[idx(i,0)]=i*gap; ptr[idx(i,0)]=1; }
+  for(let j=0;j<=m;j++){ score[idx(0,j)]=j*gap; ptr[idx(0,j)]=2; }
+
+  for(let i=1;i<=n;i++){
+    const ai=a.charCodeAt(i-1);
+    for(let j=1;j<=m;j++){
+      const bj=b.charCodeAt(j-1);
+      const s = ai===bj ? match : mismatch;
+      const diag = score[idx(i-1,j-1)] + s;
+      const up   = score[idx(i-1,j)] + gap;
+      const left = score[idx(i,j-1)] + gap;
+      let best=diag, dir=0;
+      if(up>best){best=up;dir=1;}
+      if(left>best){best=left;dir=2;}
+      score[idx(i,j)]=best;
+      ptr[idx(i,j)]=dir;
+    }
+  }
+
+  let i=n,j=m, alignedA='', alignedB='';
+  while(i>0 || j>0){
+    const d = i>0&&j>0 ? ptr[idx(i,j)] : (i>0?1:2);
+    if(d===0){ alignedA=a[i-1]+alignedA; alignedB=b[j-1]+alignedB; i--; j--; }
+    else if(d===1){ alignedA=a[i-1]+alignedA; alignedB='-'+alignedB; i--; }
+    else { alignedA='-'+alignedA; alignedB=b[j-1]+alignedB; j--; }
+  }
+  return {alignedA, alignedB, score:score[idx(n,m)]};
+}
+
+function smithWaterman(a,b,match,mismatch,gap){
+  const n=a.length, m=b.length;
+  const score=new Int32Array((n+1)*(m+1));
+  const ptr=new Uint8Array((n+1)*(m+1)); // 0 stop,1 diag,2 up,3 left
+  const idx=(i,j)=>i*(m+1)+j;
+  let maxScore=0, maxI=0, maxJ=0;
+
+  for(let i=1;i<=n;i++){
+    const ai=a.charCodeAt(i-1);
+    for(let j=1;j<=m;j++){
+      const bj=b.charCodeAt(j-1);
+      const s = ai===bj ? match : mismatch;
+      const diag = score[idx(i-1,j-1)] + s;
+      const up   = score[idx(i-1,j)] + gap;
+      const left = score[idx(i,j-1)] + gap;
+      let best=0, dir=0;
+      if(diag>best){best=diag;dir=1;}
+      if(up>best){best=up;dir=2;}
+      if(left>best){best=left;dir=3;}
+      score[idx(i,j)]=best;
+      ptr[idx(i,j)]=dir;
+      if(best>maxScore){maxScore=best;maxI=i;maxJ=j;}
+    }
+  }
+
+  let i=maxI,j=maxJ, alignedA='', alignedB='';
+  while(i>0 && j>0 && ptr[idx(i,j)]!==0){
+    const d=ptr[idx(i,j)];
+    if(d===1){ alignedA=a[i-1]+alignedA; alignedB=b[j-1]+alignedB; i--; j--; }
+    else if(d===2){ alignedA=a[i-1]+alignedA; alignedB='-'+alignedB; i--; }
+    else { alignedA='-'+alignedA; alignedB=b[j-1]+alignedB; j--; }
+  }
+  return {alignedA, alignedB, score:maxScore};
+}
+
+/* normal CDF via error function approximation (Abramowitz & Stegun) */
+function erf(x){
+  const sign = x<0?-1:1; x=Math.abs(x);
+  const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+  const t=1/(1+p*x);
+  const y=1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
+  return sign*y;
+}
+function normalCDF(z){ return 0.5*(1+erf(z/Math.SQRT2)); }
+
+/* ============================= UI WIRING ============================= */
+const $ = id=>document.getElementById(id);
+const seqAInput=$('seqA'), seqBInput=$('seqB');
+
+function updateLenDisplay(){
+  const {seq:a,invalidCount:ia}=cleanSequence(seqAInput.value);
+  const {seq:b,invalidCount:ib}=cleanSequence(seqBInput.value);
+  $('lenA').textContent = a.length+' bp';
+  $('lenB').textContent = b.length+' bp';
+  $('errA').textContent = ia? ia+' invalid char(s) ignored':'';
+  $('errB').textContent = ib? ib+' invalid char(s) ignored':'';
+}
+seqAInput.addEventListener('input',updateLenDisplay);
+seqBInput.addEventListener('input',updateLenDisplay);
+
+['matchScore','mismatchScore','gapScore','kmerSize'].forEach(id=>{
+  const el=$(id);
+  const label={matchScore:'matchVal',mismatchScore:'mismatchVal',gapScore:'gapVal',kmerSize:'kmerVal'}[id];
+  el.addEventListener('input',()=>{
+    const v=parseInt(el.value,10);
+    $(label).textContent = (id==='kmerSize')? v : (v>0? '+'+v : v);
+  });
+});
+
+document.body.addEventListener('click',e=>{
+  const action=e.target.getAttribute('data-action');
+  if(!action) return;
+  if(action==='randomA'){ seqAInput.value=randomSeq(60+Math.floor(Math.random()*60)); updateLenDisplay(); }
+  if(action==='randomB'){ seqBInput.value=randomSeq(60+Math.floor(Math.random()*60)); updateLenDisplay(); }
+  if(action==='clearA'){ seqAInput.value=''; updateLenDisplay(); }
+  if(action==='clearB'){ seqBInput.value=''; updateLenDisplay(); }
+  if(action==='demoSimilar'){
+    const base=randomSeq(90);
+    seqAInput.value=base;
+    seqBInput.value=mutateSeq(base,0.06);
+    updateLenDisplay();
+  }
+  if(action==='demoDistinct'){
+    seqAInput.value=randomSeq(90);
+    seqBInput.value=randomSeq(90);
+    updateLenDisplay();
+  }
+  if(action==='exportTxt') exportReport();
+  if(action==='printReport') window.print();
+});
+
+let lastReport=null;
+
+$('runBtn').addEventListener('click', runMatch);
+
+function shakePanel(el){ el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); }
+
+function runMatch(){
+  const {seq:a} = cleanSequence(seqAInput.value);
+  const {seq:b} = cleanSequence(seqBInput.value);
+
+  if(a.length<4){ shakePanel($('panelA')); $('errA').textContent='Enter at least 4 bases.'; return; }
+  if(b.length<4){ shakePanel($('panelB')); $('errB').textContent='Enter at least 4 bases.'; return; }
+  const MAXLEN=3000;
+  if(a.length>MAXLEN || b.length>MAXLEN){
+    $('statusText').textContent='Sequence too long — max '+MAXLEN+' bp per sample for real-time alignment.';
+    return;
+  }
+
+  const runBtn=$('runBtn');
+  runBtn.disabled=true;
+  $('progressWrap').style.display='block';
+  $('statusText').textContent='Aligning strands...';
+  scanning=true;
+  if(reduceMotion) drawHelix();
+
+  let pct=0;
+  const bar=$('progressBar');
+  const interval=setInterval(()=>{
+    pct += Math.random()*22;
+    if(pct>=92){ pct=92; }
+    bar.style.width=pct+'%';
+  },90);
+
+  setTimeout(()=>{
+    const matchScore=parseInt($('matchScore').value,10);
+    const mismatchScore=parseInt($('mismatchScore').value,10);
+    const gapScore=parseInt($('gapScore').value,10);
+    const k=parseInt($('kmerSize').value,10);
+    const algo=$('algo').value;
+
+    const result = algo==='global'
+      ? needlemanWunsch(a,b,matchScore,mismatchScore,gapScore)
+      : smithWaterman(a,b,matchScore,mismatchScore,gapScore);
+
+    let matches=0, mismatches=0, gaps=0;
+    const alen=result.alignedA.length;
+    for(let i=0;i<alen;i++){
+      const ca=result.alignedA[i], cb=result.alignedB[i];
+      if(ca==='-'||cb==='-') gaps++;
+      else if(ca===cb) matches++;
+      else mismatches++;
+    }
+    const identity = alen? (matches/alen*100) : 0;
+
+    const gcA=gcContent(a), gcB=gcContent(b);
+    const gcSim = 100 - Math.abs(gcA-gcB);
+
+    const kSetA=kmerSet(a,k), kSetB=kmerSet(b,k);
+    const kmerSim = jaccard(kSetA,kSetB)*100;
+
+    const maxPossible = alen*matchScore;
+    const scoreNorm = maxPossible>0 ? Math.max(0,Math.min(100, result.score/maxPossible*100)) : 0;
+
+    const confidence = Math.max(0,Math.min(100,
+      identity*0.50 + scoreNorm*0.20 + gcSim*0.15 + kmerSim*0.15
+    ));
+
+    // statistical significance: probability of achieving >= this many matches by chance (p=0.25/base)
+    const n = alen - gaps; // ungapped comparable positions
+    const p0=0.25;
+    const meanM = n*p0, sd = Math.sqrt(n*p0*(1-p0));
+    const z = sd>0 ? (matches-meanM)/sd : 0;
+    const pValue = sd>0 ? (1-normalCDF(z)) : 1;
+
+    clearInterval(interval);
+    bar.style.width='100%';
+    scanning=false;
+
+    setTimeout(()=>{
+      $('progressWrap').style.display='none';
+      bar.style.width='0%';
+      runBtn.disabled=false;
+      $('statusText').textContent='Analysis complete.';
+
+      lastReport = {a,b,result,matches,mismatches,gaps,alen,identity,gcA,gcB,kmerSim,confidence,pValue,algo,matchScore,mismatchScore,gapScore,k};
+      renderResults(lastReport);
+    },350);
+  },900);
+}
+
+function verdictFor(conf){
+  if(conf>=90) return {label:'STRONG MATCH — LIKELY SAME SOURCE',color:'var(--green)'};
+  if(conf>=70) return {label:'PARTIAL MATCH — RELATED SEQUENCES',color:'var(--cyan)'};
+  if(conf>=40) return {label:'WEAK MATCH — LOW SIMILARITY',color:'var(--amber)'};
+  return {label:'NO MATCH — DISTINCT SEQUENCES',color:'var(--red)'};
+}
+
+function animateNumber(el,to,suffix){
+  let cur=0;
+  const step=()=>{
+    cur += (to-cur)*0.15;
+    if(Math.abs(to-cur)<0.15){ cur=to; el.textContent=cur.toFixed(1)+suffix; return; }
+    el.textContent=cur.toFixed(1)+suffix;
+    requestAnimationFrame(step);
+  };
+  step();
+}
+
+function renderResults(r){
+  $('results').classList.add('show');
+
+  const v=verdictFor(r.confidence);
+  const verdictEl=$('verdict');
+  verdictEl.textContent=v.label;
+  verdictEl.style.color=v.color;
+  verdictEl.style.borderColor=v.color;
+
+  const ring=$('gaugeRing');
+  const circumference=2*Math.PI*92;
+  ring.style.stroke=v.color;
+  const offset=circumference*(1-r.confidence/100);
+  ring.style.transition='stroke-dashoffset 1.1s cubic-bezier(.2,.8,.2,1), stroke 0.4s';
+  requestAnimationFrame(()=>{ ring.style.strokeDashoffset=offset; });
+
+  animateNumber($('gaugeNum'), r.confidence, '%');
+
+  $('pvalText').innerHTML = 'P(chance match) ≈ <b style="color:var(--text)">'+ (r.pValue<0.0001? '&lt;0.0001' : r.pValue.toFixed(4)) +'</b><br>under null model (uniform random bases)';
+
+  const stats = [
+    ['Algorithm', r.algo==='global'?'Global (NW)':'Local (SW)', ''],
+    ['Alignment length', r.alen+' bp', ''],
+    ['Percent identity', r.identity.toFixed(2)+'%', r.identity>=80?'good':(r.identity<40?'warn':'')],
+    ['Alignment score', r.result.score, ''],
+    ['Matches', r.matches, 'good'],
+    ['Mismatches', r.mismatches, r.mismatches>0?'warn':''],
+    ['Gaps (indels)', r.gaps, r.gaps>0?'warn':''],
+    ['Sample A length', r.a.length+' bp', ''],
+    ['Sample B length', r.b.length+' bp', ''],
+    ['GC content A', r.gcA.toFixed(1)+'%', ''],
+    ['GC content B', r.gcB.toFixed(1)+'%', ''],
+    ['K-mer similarity (k='+r.k+')', r.kmerSim.toFixed(1)+'%', '']
+  ];
+  $('statsGrid').innerHTML = stats.map(([k,v,cls])=>
+    '<div class="stat"><div class="k">'+k+'</div><div class="v '+(cls||'')+'">'+v+'</div></div>'
+  ).join('');
+
+  renderAlignmentViewer(r.result.alignedA, r.result.alignedB);
+
+  document.getElementById('results').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function renderAlignmentViewer(alignedA, alignedB){
+  const width=60;
+  let html='';
+  for(let start=0; start<alignedA.length; start+=width){
+    const chunkA=alignedA.slice(start,start+width);
+    const chunkB=alignedB.slice(start,start+width);
+    let topHTML='', midHTML='', botHTML='';
+    for(let i=0;i<chunkA.length;i++){
+      const ca=chunkA[i], cb=chunkB[i];
+      let cls;
+      if(ca==='-'||cb==='-') cls='gap';
+      else if(ca===cb) cls='match';
+      else cls='mismatch';
+      topHTML += '<span class="base '+cls+'">'+ca+'</span>';
+      botHTML += '<span class="base '+cls+'">'+cb+'</span>';
+      midHTML += cls==='match' ? '<span class="mid-match">|</span>' : '<span class="mid-'+cls+'">.</span>';
+    }
+    const posLabel = '<span class="pos-label">'+String(start+1).padStart(5,' ')+'  </span>';
+    const pad = '       ';
+    html += '<div class="align-block">'+posLabel+topHTML+'\n'+pad+midHTML+'\n'+pad+botHTML+'</div>';
+  }
+  $('alignViewer').innerHTML = html;
+}
+
+function exportReport(){
+  if(!lastReport){ return; }
+  const r=lastReport;
+  const v=verdictFor(r.confidence);
+  const lines = [
+    'GENEMATCH — DNA SEQUENCE COMPARISON REPORT',
+    '='.repeat(50),
+    'Generated: '+new Date().toString(),
+    '',
+    'ALGORITHM: '+(r.algo==='global'?'Global (Needleman-Wunsch)':'Local (Smith-Waterman)'),
+    'Scoring: match '+r.matchScore+', mismatch '+r.mismatchScore+', gap '+r.gapScore,
+    '',
+    'CONFIDENCE SCORE: '+r.confidence.toFixed(2)+'%',
+    'VERDICT: '+v.label,
+    'Random-match probability (p-value): '+(r.pValue<0.0001?'<0.0001':r.pValue.toFixed(6)),
+    '',
+    'Sample A length: '+r.a.length+' bp',
+    'Sample B length: '+r.b.length+' bp',
+    'Alignment length: '+r.alen+' bp',
+    'Percent identity: '+r.identity.toFixed(2)+'%',
+    'Matches: '+r.matches,
+    'Mismatches: '+r.mismatches,
+    'Gaps: '+r.gaps,
+    'GC content A: '+r.gcA.toFixed(2)+'%',
+    'GC content B: '+r.gcB.toFixed(2)+'%',
+    'K-mer similarity (k='+r.k+'): '+r.kmerSim.toFixed(2)+'%',
+    '',
+    'DISCLAIMER: Computational sequence-similarity analysis for educational/research',
+    'use only. Not an accredited clinical, forensic, or legal identity/paternity test.',
+    '',
+    'ALIGNMENT (aligned sequences, "-" = gap):',
+    r.result.alignedA,
+    r.result.alignedB
+  ];
+  const blob=new Blob([lines.join('\n')],{type:'text/plain'});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=url; link.download='genematch-report.txt';
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+updateLenDisplay();
+})();
+</script>
+</body>
+</html>
